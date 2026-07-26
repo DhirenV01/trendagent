@@ -55,6 +55,21 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
     error       TEXT
 );
 
+CREATE TABLE IF NOT EXISTS item_state (
+    item_id    TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    state      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS clicks (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id       TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    clicked_at    TEXT NOT NULL,
+    rank_position INTEGER,
+    surface       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_clicks_item ON clicks(item_id);
 CREATE INDEX IF NOT EXISTS idx_obs_lookup   ON observations(item_id, metric, observed_at);
 CREATE INDEX IF NOT EXISTS idx_items_seen   ON items(last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_items_source ON items(source, published_at);
@@ -194,3 +209,55 @@ def finish_run(
         (now(), n_items, error, run_id),
     )
     conn.commit()
+
+
+def history(
+    conn: sqlite3.Connection,
+    item_id: str,
+    metric: str,
+    hours: int = 48,
+) -> list[tuple[str, float]]:
+    """Raw observation series for an item -- what the sparkline is drawn from."""
+    cutoff = (datetime.now(tz=UTC) - timedelta(hours=hours)).isoformat()
+    rows = conn.execute(
+        """
+        SELECT observed_at, value FROM observations
+        WHERE item_id = ? AND metric = ? AND observed_at >= ?
+        ORDER BY observed_at
+        """,
+        (item_id, metric, cutoff),
+    ).fetchall()
+    return [(r["observed_at"], r["value"]) for r in rows]
+
+
+def set_state(conn: sqlite3.Connection, item_id: str, state: str) -> None:
+    """Mark an item dismissed or saved. Dismissals are negative labels."""
+    conn.execute(
+        """
+        INSERT INTO item_state (item_id, state, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(item_id) DO UPDATE SET state = excluded.state,
+                                           updated_at = excluded.updated_at
+        """,
+        (item_id, state, now()),
+    )
+    conn.commit()
+
+
+def record_click(
+    conn: sqlite3.Connection,
+    item_id: str,
+    rank_position: int | None = None,
+    surface: str = "page",
+) -> None:
+    """Log a click. This is the training data for the eventual ranker, and like
+    the observation series it cannot be backfilled -- so it starts accumulating
+    the moment the page goes up."""
+    conn.execute(
+        "INSERT INTO clicks (item_id, clicked_at, rank_position, surface) VALUES (?, ?, ?, ?)",
+        (item_id, now(), rank_position, surface),
+    )
+    conn.commit()
+
+
+def get_item(conn: sqlite3.Connection, item_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
