@@ -20,6 +20,7 @@ from . import score, store
 
 UTC = timezone.utc
 DB = "trends.db"
+SHORT = {"points": "pts", "stars": "stars"}
 
 app = FastAPI(title="trendagent")
 
@@ -127,7 +128,7 @@ h1 {
 }
 .axis span { width: 150px; display: flex; justify-content: space-between; }
 .row {
-  display: grid; grid-template-columns: 30px 78px 1fr 150px 62px;
+  display: grid; grid-template-columns: 28px 86px 1fr 150px 118px;
   gap: 14px; align-items: center;
   padding: 11px 0; border-bottom: 1px solid var(--rule);
 }
@@ -207,19 +208,19 @@ def index(request: Request) -> str:
             rows.append(f"""
     <div class="row{hot}">
       <div class="rank">{i:02d}</div>
-      <div class="rate">{r.velocity:+.1f}<small>{r.metric[:3]}/hr</small></div>
+      <div class="rate">{r.velocity:+.1f}<small>{SHORT[r.metric]}/hr</small></div>
       <div class="title">
         <a href="/c/{r.item['id']}?rank={i}">{title}</a>
         <div class="meta">{r.item['source']} &middot; {age_label(r.age_hours)} old
           &middot; p{int(r.percentile * 100):02d}</div>
       </div>
-      {sparkline(r.series)}
+      {sparkline(r.series, window_hours=24)}
       <div class="acts">
         <button onclick="mark('{r.item['id']}','saved',this)" title="Save">keep</button>
         <button onclick="mark('{r.item['id']}','dismissed',this)" title="Dismiss">hide</button>
       </div>
     </div>""")
-        body = f'<div class="axis"><span><b>-48h</b><b>now</b></span></div>' + "".join(rows)
+        body = f'<div class="axis"><span><b>-24h</b><b>now</b></span></div>' + "".join(rows)
     else:
         body = f"""<div class="empty">
 No items have enough history to rate yet.<br>

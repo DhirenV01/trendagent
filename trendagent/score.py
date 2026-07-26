@@ -89,7 +89,7 @@ def rank(
     for row, v, metric in measured:
         pct = _percentile(by_source[row["source"]], v)
 
-        stamp = row["published_at"] or row["first_seen_at"]
+        stamp = row["first_seen_at"]
         try:
             age = (now_dt - datetime.fromisoformat(stamp)).total_seconds() / 3600
         except (TypeError, ValueError):
