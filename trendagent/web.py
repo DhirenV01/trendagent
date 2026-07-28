@@ -11,6 +11,7 @@ Run: uvicorn trendagent.web:app --reload
 from __future__ import annotations
 
 import html
+import os
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
@@ -19,7 +20,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from . import score, store
 
 UTC = timezone.utc
-DB = "trends.db"
+DB = os.getenv("TRENDAGENT_DB", "trends.db")
 SHORT = {"points": "pts", "stars": "stars"}
 
 app = FastAPI(title="trendagent")
@@ -35,7 +36,7 @@ def db():
 # sparkline
 # --------------------------------------------------------------------------
 
-def sparkline(series: list[tuple[str, float]], window_hours: int = 48,
+def sparkline(series: list[tuple[str, float]], window_hours: int = 24,
               width: int = 150, height: int = 26) -> str:
     """Draw the observation series as an SVG path.
 
@@ -156,7 +157,7 @@ h1 {
   letter-spacing: 0.06em; margin-top: 2px;
 }
 .spark { color: var(--trace); width: 150px; height: 26px; display: block; }
-.acts { display: flex; gap: 8px; justify-content: flex-end; }
+.acts { display: flex; gap: 6px; justify-content: flex-end; }
 .acts button {
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
   font-size: 11px; background: none; border: 1px solid var(--rule);

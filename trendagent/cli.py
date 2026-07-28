@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+from datetime import datetime, timedelta, timezone
 
 from . import ingest, store
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trendagent")
-    parser.add_argument("--db", default="trends.db")
+    parser.add_argument("--db", default=os.getenv("TRENDAGENT_DB", "trends.db"))
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="create the database schema")
@@ -39,20 +41,32 @@ def main(argv: list[str] | None = None) -> int:
             "SELECT source, COUNT(*) n FROM items GROUP BY source"
         ).fetchall()
         obs = conn.execute("SELECT COUNT(*) n FROM observations").fetchone()["n"]
-        print(f"{obs} observations across {sum(r['n'] for r in counts)} items")
+        runs = conn.execute(
+            "SELECT COUNT(*) n FROM ingest_runs WHERE finished_at IS NOT NULL AND error IS NULL"
+        ).fetchone()["n"]
+
+        print(f"{obs} observations / {sum(r['n'] for r in counts)} items / {runs} runs")
         for row in counts:
             print(f"  {row['source']:<8} {row['n']}")
 
-        print("\nmovers (needs >=2 ingest runs to populate):")
+        # Rank by velocity, not recency. Sorting by last_seen_at lets whichever
+        # source ran last monopolise the list, which hides entire sources.
+        cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=48)).isoformat()
         rows = conn.execute(
-            "SELECT id, source, title FROM items ORDER BY last_seen_at DESC LIMIT ?",
-            (args.limit,),
+            "SELECT id, source, title FROM items WHERE last_seen_at >= ?", (cutoff,)
         ).fetchall()
+
+        scored = []
         for row in rows:
             metric = "stars" if row["source"] == "github" else "points"
             v = store.velocity(conn, row["id"], metric=metric)
-            rate = f"{v:+.1f}/hr" if v is not None else "  --  "
-            print(f"  {rate:>10}  {row['title'][:70]}")
+            if v is not None:
+                scored.append((v, row["source"], metric, row["title"]))
+        scored.sort(reverse=True)
+
+        print(f"\ntop movers ({len(scored)} items with enough history):")
+        for v, source, metric, title in scored[: args.limit]:
+            print(f"  {v:>7.1f} {metric[:3]}/hr  [{source:<6}] {title[:62]}")
 
     return 0
 
